@@ -642,6 +642,7 @@ struct ini {
 	struct { u32 mod, key, enabled; } hotkeyForWindows;
 	// Behavior
 	bool groupByApp;
+	bool raiseAllWindows;
 	bool fastSwitchingForApps;
 	bool fastSwitchingForWindows;
 	bool showSwitcherForApps;
@@ -693,6 +694,7 @@ static struct app  Apps[128];       // Apps to be displayed in switcher
 static iz          AppsCount;       // Number of elements in 'Apps' array
 static struct app *SelectedApp;     // Pointer to one of the elements in 'Apps' array. The app for the 'SelectedWindow'
 static handle     *SelectedWindow;  // Currently selected window in switcher. Non-NULL indicates switcher is active
+static bool        GroupRaiseSession;// Was this switcher session started with the app hotkey? Only then do we raise the whole app
 // GUI
 static handle      Switcher;        // Handle for main window (aka. switcher)
 static handle      DrawingContext;  // Drawing context for double-buffered drawing of switcher window
@@ -725,6 +727,7 @@ static void InitConfig(void)
 		.hotkeyForWindows = { 0x38, 0x29, true }, // Alt-Tilde/Backquote in scancodes, must be updated during runtime, see InitConfig
 		// Behavior
 		.groupByApp              = true,
+		.raiseAllWindows         = true,
 		.fastSwitchingForApps    = false,
 		.fastSwitchingForWindows = true,
 		.showSwitcherForApps     = true,
@@ -753,6 +756,7 @@ static void InitConfig(void)
 	Config.hotkeyForWindows.key = MapVirtualKeyW(Config.hotkeyForWindows.key, MAPVK_VSC_TO_VK_EX);
 
 	Config.groupByApp = GetRegKey(L"groupByApp");
+	Config.raiseAllWindows = GetRegKey(L"raiseAllWindows"); // GetRegKey returns -1 when unset, which is truthy, so this defaults to on
 
 	Config.darkmode = IsDarkModeEnabled();
 	Log(L"darkmode %s\n", Config.darkmode ? L"YES" : L"NO");
@@ -1553,12 +1557,45 @@ static void SendModKeysUp(void)
 		sizeof(INPUT));
 }
 
+static void RaiseAppWindows(struct app *app, handle keepLast)
+{
+	// Raise every window of 'app' except 'keepLast', which the caller raises
+	// afterwards so it ends up on top and takes the focus.
+	//
+	// 'app->windows' is sorted most-recently-used first, so walking it
+	// backwards means each window is raised over the one raised before it,
+	// and the app's windows keep their relative stacking order.
+	for (iz i = app->windowsCount - 1; i >= 0; i--) {
+		handle hwnd = app->windows[i];
+		if (hwnd == keepLast) {
+			continue;
+		}
+		if (IsIconic(hwnd)) {
+			WINDOWPLACEMENT placement = { .length = sizeof placement };
+			bool maximized = GetWindowPlacement(hwnd, &placement) && (placement.flags & WPF_RESTORETOMAXIMIZED);
+			ShowWindow(hwnd, maximized ? SW_SHOWMAXIMIZED : SW_SHOWNOACTIVATE); // Un-minimize without stealing the foreground
+		}
+		// SetWindowPos(HWND_TOP) reports success but Windows silently drops the
+		// z-order change when the window belongs to another process. Flipping
+		// topmost on and straight back off is what actually moves it.
+		if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) {
+			continue; // Already above everything, and demoting a user's always-on-top window would be rude
+		}
+		SetWindowPos(hwnd, HWND_TOPMOST,   0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	}
+}
+
 static void ShowSelectedWindow(void)
 {
 	///*dbg*/i64 start = StartMeasuring();
 	RedrawSwitcher();
 	///*dbg*/Print(L"RedrawSwitcher %llims elapsed\n", FinishMeasuring(start));
 	ReceiveLastInputEvent();
+	// macOS-style: switching to an app brings up all of its windows, not just one
+	if (Config.raiseAllWindows && GroupRaiseSession && SelectedApp) {
+		RaiseAppWindows(SelectedApp, *SelectedWindow);
+	}
 	ShowWindowX(*SelectedWindow);
 }
 
@@ -1646,6 +1683,7 @@ static LRESULT CALLBACK KeyboardHookProcedure(int code, WPARAM wparam, LPARAM lp
 
 		// First Alt-Tab
 		if (hotkeyForApps) {
+			GroupRaiseSession = true; // Alt-Tab switches apps, so bring the whole app forward
 			UpdateApps();
 			if (AppsCount <= 0) {
 				Log(L"no apps\n");
@@ -1672,6 +1710,7 @@ static LRESULT CALLBACK KeyboardHookProcedure(int code, WPARAM wparam, LPARAM lp
 
 		// First Alt-Tilde/Backquote
 		if (hotkeyForWindows) {
+			GroupRaiseSession = false; // Alt-Backquote picks one window, so leave the rest alone
 			UpdateApps();
 			if (AppsCount <= 0) {
 				Log(L"no apps\n");
@@ -1778,6 +1817,7 @@ static LRESULT CALLBACK KeyboardHookProcedure(int code, WPARAM wparam, LPARAM lp
 			bool keyHDown   = keyCode == 'H' && keyDown;
 			bool keyBUp     = keyCode == 'B' && !keyDown;
 			bool keyGDown   = keyCode == 'G' && keyDown;
+			bool keyRDown   = keyCode == 'R' && keyDown;
 
 			// Alt-F4 - quit cmdtab
 			if (keyF4Down) {
@@ -1821,6 +1861,13 @@ static LRESULT CALLBACK KeyboardHookProcedure(int code, WPARAM wparam, LPARAM lp
 				handle selectedWindow = *SelectedWindow; // HideSwitcher resets SelectedWindow
 				HideSwitcher();
 				ReportWindowHandle(Switcher, selectedWindow);
+				goto consumeMessage;
+			}
+			// Alt-R - toggle raising all windows of the selected app
+			if (keyRDown) {
+				Config.raiseAllWindows = !Config.raiseAllWindows;
+				SetRegKey(L"raiseAllWindows", Config.raiseAllWindows);
+				Log(L"raiseAllWindows %s\n", Config.raiseAllWindows ? L"ON" : L"OFF");
 				goto consumeMessage;
 			}
 			if (keyGDown) {
