@@ -23,7 +23,7 @@
 - Do not add libraries to `LDLIBS`. `user32` and `gdi32` are already linked (`gdi32` explicitly, `user32` by default under mingw-w64).
 - Do not touch the main message loop at `cmdtab.c:907`. It filters on `Switcher`, and the program's only exit path depends on `GetMessageW` returning `-1` after `DestroyWindow(Switcher)`.
 - The switcher background colour is `RGB(32, 32, 32)`, currently a local in `RedrawSwitcher` (cmdtab.c:1469). Task 1 promotes it to a file-scope macro; after that, **never hardcode 32 again** — the alpha sweep and the accent tint must both derive from that one macro.
-- Tint value is `0x78202020` in AABBGGRR, i.e. `#202020` at alpha 120. This number was measured, not guessed: at alpha 200 the blur is invisible. Do not raise it without re-measuring.
+- Tint value is `0x50202020` in AABBGGRR, i.e. `#202020` at alpha 80. Alpha 200 is a measured ceiling, not guessed: at alpha 200 the blur is invisible. The shipped value of 80 (lowered from an earlier 120) is a user preference chosen after looking at the result on screen, not a re-measurement — do not raise it without re-measuring the 200 ceiling first.
 
 ## Testing approach — read this before Task 1
 
@@ -303,10 +303,10 @@ static void ApplySwitcherBlur(bool on)
 	struct accent_policy policy = {
 		on ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_DISABLED,
 		ACCENT_FLAG_FILL_WINDOW,
-		// The switcher's own background colour at alpha 120. This is the only
+		// The switcher's own background colour at alpha 80. This is the only
 		// tint: SetSwitcherAlpha leaves background pixels fully transparent so
 		// the two do not stack. At alpha 200 the blur stops being visible
-		(120u << 24) | (GetBValue(SWITCHER_BG) << 16) | (GetGValue(SWITCHER_BG) << 8) | GetRValue(SWITCHER_BG),
+		(80u << 24) | (GetBValue(SWITCHER_BG) << 16) | (GetGValue(SWITCHER_BG) << 8) | GetRValue(SWITCHER_BG),
 		0,
 	};
 	struct composition_attribute attribute = {WCA_ACCENT_POLICY, &policy, sizeof policy};

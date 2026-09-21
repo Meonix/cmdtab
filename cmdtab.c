@@ -875,10 +875,10 @@ static void ApplySwitcherBlur(bool on)
 	struct accent_policy policy = {
 		on ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_DISABLED,
 		ACCENT_FLAG_FILL_WINDOW,
-		// The switcher's own background colour at alpha 120. This is the only
+		// The switcher's own background colour at alpha 80. This is the only
 		// tint: SetSwitcherAlpha leaves background pixels fully transparent so
 		// the two do not stack. At alpha 200 the blur stops being visible
-		(120u << 24) | (GetBValue(SWITCHER_BG) << 16) | (GetGValue(SWITCHER_BG) << 8) | GetRValue(SWITCHER_BG),
+		(80u << 24) | (GetBValue(SWITCHER_BG) << 16) | (GetGValue(SWITCHER_BG) << 8) | GetRValue(SWITCHER_BG),
 		0,
 	};
 	struct composition_attribute attribute = {WCA_ACCENT_POLICY, &policy, sizeof policy};

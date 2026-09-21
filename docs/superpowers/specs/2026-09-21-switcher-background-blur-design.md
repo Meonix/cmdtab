@@ -40,6 +40,11 @@ Two further findings from the same probes, both of which shape the design:
   panel is as flat as today's opaque fill. Alpha 120 is where the blur reads
   while the panel still looks dark.
 
+The alpha-200 ceiling above is a measurement and still holds. The tint value
+actually shipped was lowered from 120 to 80 after the user saw alpha 120 on
+screen and asked for more of the background to show through — that change is
+a preference, not a re-measurement.
+
 The probes were throwaway and are not part of the repository.
 
 ## Decisions
@@ -48,7 +53,7 @@ The probes were throwaway and are not part of the repository.
 |---|---|
 | Blur mechanism | `SetWindowCompositionAttribute` with `ACCENT_ENABLE_ACRYLICBLURBEHIND` |
 | When it is unavailable | Fall back to today's opaque drawing |
-| Tint | cmdtab's own `#202020` at alpha 120, carried by the accent policy's gradient colour |
+| Tint | cmdtab's own `#202020` at alpha 80, carried by the accent policy's gradient colour |
 | User control | A checkbox in the settings dialog, default on |
 | Window type | Ordinary window, unchanged `WM_PAINT` + `BitBlt` |
 
@@ -133,14 +138,14 @@ A new `ApplySwitcherBlur(bool on)` builds the policy and calls it:
 
 ```c
 ACCENT_POLICY policy = { on ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_DISABLED,
-                         2, 0x78202020, 0 };          // AABBGGRR, 0x78 = alpha 120
+                         2, 0x50202020, 0 };          // AABBGGRR, 0x50 = alpha 80
 WINDOWCOMPOSITIONATTRIBDATA data = { 19 /* WCA_ACCENT_POLICY */, &policy, sizeof policy };
 ```
 
-**The tint lives in `GradientColor`, not in the pixels.** `0x78202020` is
-`#202020` at alpha 120, applied by DWM underneath the window's own content.
+**The tint lives in `GradientColor`, not in the pixels.** `0x50202020` is
+`#202020` at alpha 80, applied by DWM underneath the window's own content.
 This is why the fixup pass in section 2 writes alpha 0 for background pixels
-rather than 120: two tint layers stacked would come out twice as dark.
+rather than 80: two tint layers stacked would come out twice as dark.
 
 A global `BlurActive` records whether the blur is in effect. It is false when
 the export does not resolve, when the call returns `FALSE`, or when the user
