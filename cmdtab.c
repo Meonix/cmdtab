@@ -9,7 +9,6 @@
 //#undef _DEBUG
 
 #define NOGDICAPMASKS
-#define NOMENUS
 #define NOICONS
 #define NOKEYSTATES
 #define OEMRESOURCE
@@ -52,6 +51,7 @@
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "winmm.lib") // PlaySound
 #pragma comment(lib, "shcore.lib") // GetDpiForMonitor
+#pragma comment(lib, "shell32.lib") // Shell_NotifyIconW
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #endif
 
@@ -641,6 +641,10 @@ static void AttachDebugConsole(wchar_t *title)
 // cmdtab impl
 //==============================================================================
 
+#define WM_CMDTAB_TRAY     (WM_APP + 1) // Notification area callback message, sent to the switcher window
+#define TRAY_MENU_SETTINGS 1
+#define TRAY_MENU_QUIT     2
+
 // Settings
 struct ini {
 	// Hotkeys
@@ -714,6 +718,9 @@ static HPEN        NoneOutline;     // Pen with window background color
 static i32         MouseX, MouseY;  // Mouse position, for highlighting and clicking app icons in switcher
 static bool        MouseDown;       // Is left mouse button down?
 static struct app *MouseApp;        // Pointer to one of the elements in 'Apps' array. The app under MouseX,MouseY
+// Notification area
+static NOTIFYICONDATAW TrayIcon;    // Notification area icon, owned by the switcher window
+static u32         TaskbarCreated;  // Message explorer.exe broadcasts when it restarts, so we can re-add the tray icon
 
 
 //================
@@ -834,6 +841,40 @@ static void InitSwitcherWindow(handle instance)
 	DwmSetWindowAttribute(Switcher, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
 }
 
+static void AddTrayIcon(void)
+{
+	Shell_NotifyIconW(NIM_ADD, &TrayIcon);
+	TrayIcon.uVersion = NOTIFYICON_VERSION_4;
+	Shell_NotifyIconW(NIM_SETVERSION, &TrayIcon); // Version 4 puts the event in lparam and the screen coords in wparam
+}
+
+static void InitTrayIcon(handle instance)
+{
+	// explorer.exe broadcasts this when it restarts, at which point every tray icon has to be added again
+	TaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+
+	TrayIcon = (NOTIFYICONDATAW){0};
+	TrayIcon.cbSize = sizeof TrayIcon;
+	TrayIcon.hWnd = Switcher;
+	TrayIcon.uID = 1;
+	TrayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+	TrayIcon.uCallbackMessage = WM_CMDTAB_TRAY;
+	// Resource id 2 is the ICON entry in cmdtab.rc
+	TrayIcon.hIcon = LoadImageW(instance, MAKEINTRESOURCEW(2), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+	StringCchCopyW(TrayIcon.szTip, countof(TrayIcon.szTip), L"cmdtab");
+
+	AddTrayIcon();
+}
+
+static void RemoveTrayIcon(void)
+{
+	Shell_NotifyIconW(NIM_DELETE, &TrayIcon);
+	if (TrayIcon.hIcon) {
+		DestroyIcon(TrayIcon.hIcon);
+		TrayIcon.hIcon = NULL;
+	}
+}
+
 static int RunCmdTab(handle instance, u16 *args)
 {
 	if (HasDebugLaunchArgument(args)) {
@@ -856,6 +897,7 @@ static int RunCmdTab(handle instance, u16 *args)
 	i32 _ = CoInitialize(NULL);
 
 	InitSwitcherWindow(instance);
+	InitTrayIcon(instance);
 	InitWindowActivationTracking();
 	InitKeyboardHook();
 
@@ -2081,6 +2123,38 @@ static i64 OnShellWindowActivated(handle hwnd)
 	return 1;
 }
 
+static void ShowTrayMenu(i32 x, i32 y)
+{
+	HMENU menu = CreatePopupMenu();
+	if (!menu) return;
+	AppendMenuW(menu, MF_STRING, TRAY_MENU_SETTINGS, L"Settings...");
+	AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+	AppendMenuW(menu, MF_STRING, TRAY_MENU_QUIT, L"Quit cmdtab");
+	// Without this the menu stays on screen when the user clicks elsewhere
+	SetForegroundWindow(Switcher);
+	i32 choice = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, x, y, 0, Switcher, NULL);
+	DestroyMenu(menu);
+	switch (choice) {
+		case TRAY_MENU_SETTINGS:
+			break; // Wired up in the next task
+		case TRAY_MENU_QUIT:
+			DestroyWindow(Switcher); // The program's normal exit: the next GetMessageW fails and the message loop ends
+			break;
+	}
+}
+
+static i64 OnTrayMessage(u32 event, i32 x, i32 y)
+{
+	switch (event) {
+		case WM_LBUTTONUP:
+			break; // Wired up in the next task
+		case WM_CONTEXTMENU:
+			ShowTrayMenu(x, y);
+			break;
+	}
+	return 1;
+}
+
 static LRESULT CALLBACK SwitcherWindowProcedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	switch (message) {
@@ -2107,9 +2181,19 @@ static LRESULT CALLBACK SwitcherWindowProcedure(HWND hwnd, UINT message, WPARAM 
 		case WM_CAPTURECHANGED:
 			if ((HWND)lparam != hwnd) {}
 			return 1;
+		case WM_CMDTAB_TRAY:
+			// NOTIFYICON_VERSION_4: event in the low word of lparam, screen coords in wparam
+			return OnTrayMessage(LOWORD(lparam), (i16)LOWORD(wparam), (i16)HIWORD(wparam));
+		case WM_DESTROY:
+			RemoveTrayIcon();
+			return 0;
 		case WM_CLOSE:
 			return OnSwitcherClose();
 		default:
+			if (TaskbarCreated && message == TaskbarCreated) {
+				AddTrayIcon(); // explorer.exe restarted and forgot about us
+				return 0;
+			}
 			return DefWindowProcW(hwnd, message, wparam, lparam);
 	}
 }
