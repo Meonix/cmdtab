@@ -882,7 +882,8 @@ static void ApplySwitcherBlur(bool on)
 		0,
 	};
 	struct composition_attribute attribute = {WCA_ACCENT_POLICY, &policy, sizeof policy};
-	BlurActive = on && SetWindowCompositionAttribute(Switcher, &attribute);
+	i32 applied = SetWindowCompositionAttribute(Switcher, &attribute);
+	BlurActive = on && applied;
 }
 
 static void InitSwitcherWindow(handle instance)

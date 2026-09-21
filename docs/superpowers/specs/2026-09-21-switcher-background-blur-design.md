@@ -151,7 +151,14 @@ A global `BlurActive` records whether the blur is in effect. It is false when
 the export does not resolve, when the call returns `FALSE`, or when the user
 has turned the checkbox off. `RedrawSwitcher` runs the fixup pass only when
 `BlurActive` is true; otherwise every pixel keeps alpha 255 and the switcher is
-opaque exactly as it is today. That single `if` is the entire fallback.
+opaque exactly as it is today. That single `if` is the entire fallback for the
+export being absent or refusing the policy — it is not the whole story for
+*Transparency effects* being off in Windows Settings. In that case
+`SetWindowCompositionAttribute` still returns `TRUE`, so `BlurActive` stays
+true and the background pixels are still punched transparent; the switcher
+stays readable only because DWM then paints `GradientColor` opaquely instead
+of blurring behind it. That is observed, undocumented behaviour, not a
+guarantee.
 
 `DWMWA_WINDOW_CORNER_PREFERENCE` (cmdtab.c:846) stays. Rounded corners were
 confirmed to survive per-pixel alpha, but were not tested together with an
