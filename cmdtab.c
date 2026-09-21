@@ -528,6 +528,12 @@ static void SetRegKey(u16 *keyname, int value) {
 	(void)success;
 }
 
+static bool GetRegKeyBool(u16 *keyname, bool fallback)
+{
+	int value = GetRegKey(keyname);
+	return value < 0 ? fallback : !!value; // GetRegKey returns -1 when the value does not exist, and -1 is truthy
+}
+
 static bool IsKeyDown(u32 key)
 {
 	return (bool)(GetAsyncKeyState(key) & 0x8000);
@@ -755,8 +761,14 @@ static void InitConfig(void)
 	Config.hotkeyForWindows.mod = MapVirtualKeyW(Config.hotkeyForWindows.mod, MAPVK_VSC_TO_VK_EX);
 	Config.hotkeyForWindows.key = MapVirtualKeyW(Config.hotkeyForWindows.key, MAPVK_VSC_TO_VK_EX);
 
-	Config.groupByApp = GetRegKey(L"groupByApp");
-	Config.raiseAllWindows = GetRegKey(L"raiseAllWindows"); // GetRegKey returns -1 when unset, which is truthy, so this defaults to on
+	// Stored settings override the defaults set in the struct literal above, which double as the fallbacks
+	Config.groupByApp              = GetRegKeyBool(L"groupByApp",              Config.groupByApp);
+	Config.raiseAllWindows         = GetRegKeyBool(L"raiseAllWindows",         Config.raiseAllWindows);
+	Config.fastSwitchingForApps    = GetRegKeyBool(L"fastSwitchingForApps",    Config.fastSwitchingForApps);
+	Config.fastSwitchingForWindows = GetRegKeyBool(L"fastSwitchingForWindows", Config.fastSwitchingForWindows);
+	Config.showSwitcherForApps     = GetRegKeyBool(L"showSwitcherForApps",     Config.showSwitcherForApps);
+	Config.showSwitcherForWindows  = GetRegKeyBool(L"showSwitcherForWindows",  Config.showSwitcherForWindows);
+	Config.wrapbump                = GetRegKeyBool(L"wrapbump",                Config.wrapbump);
 
 	Config.darkmode = IsDarkModeEnabled();
 	Log(L"darkmode %s\n", Config.darkmode ? L"YES" : L"NO");
