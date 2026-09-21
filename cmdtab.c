@@ -676,6 +676,7 @@ struct ini {
 	bool wrapbump;
 	// Appearance
 	bool darkmode;
+	bool blurBackground;
 	u32 switcherHorzMargin;
 	u32 switcherVertMargin;
 	u32 iconSize;
@@ -800,6 +801,7 @@ static void InitConfig(void)
 		.wrapbump                = true,
 		// Appearance
 		.darkmode                = false,
+		.blurBackground          = true,
 		.switcherHorzMargin      = 24,
 		.switcherVertMargin      = 32,
 		.iconSize                = 64,
@@ -828,6 +830,7 @@ static void InitConfig(void)
 	Config.showSwitcherForApps     = GetRegKeyBool(L"showSwitcherForApps",     Config.showSwitcherForApps);
 	Config.showSwitcherForWindows  = GetRegKeyBool(L"showSwitcherForWindows",  Config.showSwitcherForWindows);
 	Config.wrapbump                = GetRegKeyBool(L"wrapbump",                Config.wrapbump);
+	Config.blurBackground          = GetRegKeyBool(L"blurBackground",          Config.blurBackground);
 
 	Config.darkmode = IsDarkModeEnabled();
 	Log(L"darkmode %s\n", Config.darkmode ? L"YES" : L"NO");
@@ -904,7 +907,7 @@ static void InitSwitcherWindow(handle instance)
 	union { FARPROC proc; SetWindowCompositionAttributeFn fn; } resolved;
 	resolved.proc = GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute");
 	SetWindowCompositionAttribute = resolved.fn;
-	ApplySwitcherBlur(true);
+	ApplySwitcherBlur(Config.blurBackground);
 }
 
 static void AddTrayIcon(void)
@@ -2249,6 +2252,7 @@ static INT_PTR CALLBACK SettingsDialogProcedure(HWND hwnd, UINT message, WPARAM 
 			CheckDlgButton(hwnd, IDC_SHOW_SWITCHER_APPS,     Config.showSwitcherForApps     ? BST_CHECKED : BST_UNCHECKED);
 			CheckDlgButton(hwnd, IDC_SHOW_SWITCHER_WINDOWS,  Config.showSwitcherForWindows  ? BST_CHECKED : BST_UNCHECKED);
 			CheckDlgButton(hwnd, IDC_WRAPBUMP,               Config.wrapbump                ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_BLUR_BACKGROUND,        Config.blurBackground          ? BST_CHECKED : BST_UNCHECKED);
 			CheckDlgButton(hwnd, IDC_AUTORUN,                GetAutorun(L"cmdtab")          ? BST_CHECKED : BST_UNCHECKED);
 			return TRUE;
 		case WM_COMMAND:
@@ -2261,6 +2265,8 @@ static INT_PTR CALLBACK SettingsDialogProcedure(HWND hwnd, UINT message, WPARAM 
 					SetConfigBool(L"showSwitcherForApps",     &Config.showSwitcherForApps,     IsDlgButtonChecked(hwnd, IDC_SHOW_SWITCHER_APPS)     == BST_CHECKED);
 					SetConfigBool(L"showSwitcherForWindows",  &Config.showSwitcherForWindows,  IsDlgButtonChecked(hwnd, IDC_SHOW_SWITCHER_WINDOWS)  == BST_CHECKED);
 					SetConfigBool(L"wrapbump",                &Config.wrapbump,                IsDlgButtonChecked(hwnd, IDC_WRAPBUMP)               == BST_CHECKED);
+					SetConfigBool(L"blurBackground",          &Config.blurBackground,          IsDlgButtonChecked(hwnd, IDC_BLUR_BACKGROUND)        == BST_CHECKED);
+					ApplySwitcherBlur(Config.blurBackground);
 					SetAutorun(IsDlgButtonChecked(hwnd, IDC_AUTORUN) == BST_CHECKED, L"cmdtab", L"--autorun");
 					SettingsDialog = NULL;
 					EndDialog(hwnd, IDOK);

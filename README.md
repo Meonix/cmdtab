@@ -41,15 +41,18 @@ So why is **cmdtab** *the best* macOS-style window switcher alternative for Wind
 - Press W to close the selected window
 - Press F4 while the switcher is open to quit **cmdtab**
 - Tray icon in the notification area: left click for settings, right click for a menu
+- The desktop behind the switcher is blurred, and can be turned off in settings
 
 That's a lot of useful stuff, and the code is small! Go read it, and learn some C while you're at it.
 
 ### Settings
 **cmdtab** puts an icon in the notification area (behind the `^` chevron next to the clock, unless you drag it out). Left click it to open the settings window; right click it for a small menu with *Settings...* and *Quit cmdtab*.
 
-The settings window covers switching behavior—app grouping, raising all windows of an app, whether each hotkey shows the switcher or switches straight away, and wrap bump—plus a checkbox for starting **cmdtab** with Windows. Settings are stored under `HKEY_CURRENT_USER\Software\stianhoiland\cmdtab` and survive a restart. The in-switcher hotkeys `Alt-G` and `Alt-R` still work and are faster if you only want to flip one thing.
+The settings window covers switching behavior—app grouping, raising all windows of an app, whether each hotkey shows the switcher or switches straight away, and wrap bump—plus whether the desktop behind the switcher is blurred, and a checkbox for starting **cmdtab** with Windows. Settings are stored under `HKEY_CURRENT_USER\Software\stianhoiland\cmdtab` and survive a restart. The in-switcher hotkeys `Alt-G` and `Alt-R` still work and are faster if you only want to flip one thing.
 
-Hotkeys, the blacklist and the switcher's appearance are not in the settings window yet; those still live in `InitConfig` in `cmdtab.c`.
+The blur needs Windows 10 version 1803 or newer with *Transparency effects* turned on in Windows Settings. Where it is unavailable the switcher simply draws its usual solid background.
+
+Hotkeys, the blacklist and the rest of the switcher's appearance are not in the settings window yet; those still live in `InitConfig` in `cmdtab.c`.
 
 ## Installing **cmdtab**
 There's no installation. Just download the [latest version](https://github.com/stianhoiland/cmdtab/releases/latest) from the Releases section, unzip, and run. 

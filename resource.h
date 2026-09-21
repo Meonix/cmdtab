@@ -11,5 +11,6 @@
 #define IDC_SHOW_SWITCHER_WINDOWS    1006
 #define IDC_WRAPBUMP                 1007
 #define IDC_AUTORUN                  1008
+#define IDC_BLUR_BACKGROUND          1009
 
 #endif

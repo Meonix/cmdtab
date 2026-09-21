@@ -1,6 +1,6 @@
 # Blurred background for the cmdtab switcher
 
-**Status:** approved design, not yet implemented
+**Status:** implemented
 **Date:** 2026-09-21
 
 ## Problem
