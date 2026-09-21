@@ -43,6 +43,8 @@
 #include <mmsystem.h> // PlaySound
 #include <shellscalingapi.h> // GetDpiForMonitor
 
+#include "resource.h"
+
 #ifdef _MSC_VER
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shlwapi.lib") // Only used by StringFileName for PathFindFileNameW?
@@ -509,6 +511,14 @@ static void SetAutorun(bool enabled, u16 *keyname, u16 *args)
 	(void)success;
 }
 
+static bool GetAutorun(u16 *keyname)
+{
+	u16 buffer[1024];
+	ULONG size = sizeof buffer;
+	// The value simply being present means autorun is on
+	return !RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", keyname, RRF_RT_REG_SZ, NULL, buffer, &size);
+}
+
 static int GetRegKey(u16 *keyname) {
 	ULONG value;
 	ULONG size = sizeof value;
@@ -532,6 +542,12 @@ static bool GetRegKeyBool(u16 *keyname, bool fallback)
 {
 	int value = GetRegKey(keyname);
 	return value < 0 ? fallback : !!value; // GetRegKey returns -1 when the value does not exist, and -1 is truthy
+}
+
+static void SetConfigBool(u16 *keyname, bool *setting, bool value)
+{
+	*setting = value;
+	SetRegKey(keyname, value);
 }
 
 static bool IsKeyDown(u32 key)
@@ -721,6 +737,7 @@ static struct app *MouseApp;        // Pointer to one of the elements in 'Apps' 
 // Notification area
 static NOTIFYICONDATAW TrayIcon;    // Notification area icon, owned by the switcher window
 static u32         TaskbarCreated;  // Message explorer.exe broadcasts when it restarts, so we can re-add the tray icon
+static handle      SettingsDialog;  // Non-NULL while the settings dialog is open
 
 
 //================
@@ -2123,6 +2140,59 @@ static i64 OnShellWindowActivated(handle hwnd)
 	return 1;
 }
 
+static INT_PTR CALLBACK SettingsDialogProcedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
+{
+	switch (message) {
+		case WM_INITDIALOG:
+			SettingsDialog = hwnd;
+			CheckDlgButton(hwnd, IDC_GROUP_BY_APP,           Config.groupByApp              ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_RAISE_ALL_WINDOWS,      Config.raiseAllWindows         ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_FAST_SWITCHING_APPS,    Config.fastSwitchingForApps    ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_FAST_SWITCHING_WINDOWS, Config.fastSwitchingForWindows ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_SHOW_SWITCHER_APPS,     Config.showSwitcherForApps     ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_SHOW_SWITCHER_WINDOWS,  Config.showSwitcherForWindows  ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_WRAPBUMP,               Config.wrapbump                ? BST_CHECKED : BST_UNCHECKED);
+			CheckDlgButton(hwnd, IDC_AUTORUN,                GetAutorun(L"cmdtab")          ? BST_CHECKED : BST_UNCHECKED);
+			return TRUE;
+		case WM_COMMAND:
+			switch (LOWORD(wparam)) {
+				case IDOK:
+					SetConfigBool(L"groupByApp",              &Config.groupByApp,              IsDlgButtonChecked(hwnd, IDC_GROUP_BY_APP)           == BST_CHECKED);
+					SetConfigBool(L"raiseAllWindows",         &Config.raiseAllWindows,         IsDlgButtonChecked(hwnd, IDC_RAISE_ALL_WINDOWS)      == BST_CHECKED);
+					SetConfigBool(L"fastSwitchingForApps",    &Config.fastSwitchingForApps,    IsDlgButtonChecked(hwnd, IDC_FAST_SWITCHING_APPS)    == BST_CHECKED);
+					SetConfigBool(L"fastSwitchingForWindows", &Config.fastSwitchingForWindows, IsDlgButtonChecked(hwnd, IDC_FAST_SWITCHING_WINDOWS) == BST_CHECKED);
+					SetConfigBool(L"showSwitcherForApps",     &Config.showSwitcherForApps,     IsDlgButtonChecked(hwnd, IDC_SHOW_SWITCHER_APPS)     == BST_CHECKED);
+					SetConfigBool(L"showSwitcherForWindows",  &Config.showSwitcherForWindows,  IsDlgButtonChecked(hwnd, IDC_SHOW_SWITCHER_WINDOWS)  == BST_CHECKED);
+					SetConfigBool(L"wrapbump",                &Config.wrapbump,                IsDlgButtonChecked(hwnd, IDC_WRAPBUMP)               == BST_CHECKED);
+					SetAutorun(IsDlgButtonChecked(hwnd, IDC_AUTORUN) == BST_CHECKED, L"cmdtab", L"--autorun");
+					SettingsDialog = NULL;
+					EndDialog(hwnd, IDOK);
+					return TRUE;
+				case IDCANCEL:
+					SettingsDialog = NULL;
+					EndDialog(hwnd, IDCANCEL);
+					return TRUE;
+			}
+			return FALSE;
+		case WM_CLOSE:
+			SettingsDialog = NULL;
+			EndDialog(hwnd, IDCANCEL);
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static void ShowSettingsDialog(void)
+{
+	if (SettingsDialog) {
+		SetForegroundWindow(SettingsDialog); // Already open - raise it instead of opening a second one
+		return;
+	}
+	// Modal: DialogBoxParamW runs its own message loop, so the main loop's hwnd filter is left alone
+	// and the low-level keyboard hook keeps being pumped, which is why Alt-Tab still works while this is open
+	DialogBoxParamW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDD_SETTINGS), Switcher, SettingsDialogProcedure, 0);
+}
+
 static void ShowTrayMenu(i32 x, i32 y)
 {
 	HMENU menu = CreatePopupMenu();
@@ -2136,7 +2206,8 @@ static void ShowTrayMenu(i32 x, i32 y)
 	DestroyMenu(menu);
 	switch (choice) {
 		case TRAY_MENU_SETTINGS:
-			break; // Wired up in the next task
+			ShowSettingsDialog();
+			break;
 		case TRAY_MENU_QUIT:
 			DestroyWindow(Switcher); // The program's normal exit: the next GetMessageW fails and the message loop ends
 			break;
@@ -2147,7 +2218,8 @@ static i64 OnTrayMessage(u32 event, i32 x, i32 y)
 {
 	switch (event) {
 		case WM_LBUTTONUP:
-			break; // Wired up in the next task
+			ShowSettingsDialog();
+			break;
 		case WM_CONTEXTMENU:
 			ShowTrayMenu(x, y);
 			break;

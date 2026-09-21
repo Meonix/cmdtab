@@ -21,8 +21,8 @@ endif
 cmdtab.exe: cmdtab.c cmdtab.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $(INCLUDE) -o $@ $^ $(LDLIBS)
 
-cmdtab.o: cmdtab.rc
-	windres $^ $@
+cmdtab.o: cmdtab.rc resource.h
+	windres $< $@
 
 clean:
 	rm cmdtab.exe cmdtab.o || true
