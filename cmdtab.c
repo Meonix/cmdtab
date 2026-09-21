@@ -857,7 +857,11 @@ static int RunCmdTab(handle instance, u16 *args)
 	if (Mutex) ReleaseMutex(Mutex);
 
 	Log(L"cmdtab quit\n");
+#ifdef _MSC_VER
 	bool hasLeaks = _CrtDumpMemoryLeaks();
+#else
+	bool hasLeaks = false; // _CrtDumpMemoryLeaks is MSVC-only; mingw has no import for it
+#endif
 	Log(L"leaks? %s\n", hasLeaks ? L"YES" : L"No leaks.");
 	if (hasLeaks) {
 		Error(NULL, L"There were memory leaks.");
