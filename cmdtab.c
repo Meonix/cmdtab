@@ -710,6 +710,32 @@ struct gui {
 	u32 selVertOff;
 };
 
+// SetWindowCompositionAttribute is an undocumented user32 export, and the only
+// way to blur what is behind a window. The documented DWMWA_SYSTEMBACKDROP_TYPE
+// returns S_OK but only paints a flat sheet - measured on Windows 11 build
+// 26200 while designing this. No SDK header declares any of the following, so
+// it is declared here. It is resolved at runtime and its absence is not an
+// error: see ApplySwitcherBlur
+#define ACCENT_DISABLED                 0
+#define ACCENT_ENABLE_ACRYLICBLURBEHIND 4
+#define ACCENT_FLAG_FILL_WINDOW         2 // Apply the gradient colour over the whole window, not just its border
+#define WCA_ACCENT_POLICY               19
+
+struct accent_policy {
+	u32 state;
+	u32 flags;
+	u32 gradient; // AABBGGRR, note the byte order is not COLORREF's
+	u32 animation;
+};
+
+struct composition_attribute {
+	u32 attribute;
+	void *data;
+	iz size;
+};
+
+typedef i32(__stdcall *SetWindowCompositionAttributeFn)(handle, struct composition_attribute *);
+
 // The switcher background. SetSwitcherAlpha uses it as the key for which pixels
 // are background, and ApplySwitcherBlur tints the acrylic with it, so it has to
 // be one value in one place
@@ -737,6 +763,9 @@ static HBRUSH      SelectionBg;     // Selection background
 static HPEN        SelectionOutline;// Selection rectangle pen
 static HPEN        MouseOutline;    // Mouseover rectangle pen
 static HPEN        NoneOutline;     // Pen with window background color
+static HFONT       DrawingFont;     // Title font. Same face as DEFAULT_GUI_FONT but greyscale-antialiased, see RedrawSwitcher
+static bool        BlurActive;      // Is the acrylic blur actually in effect? False means draw opaque, exactly as cmdtab always did
+static SetWindowCompositionAttributeFn SetWindowCompositionAttribute; // NULL on Windows without the undocumented export
 static i32         MouseX, MouseY;  // Mouse position, for highlighting and clicking app icons in switcher
 static bool        MouseDown;       // Is left mouse button down?
 static struct app *MouseApp;        // Pointer to one of the elements in 'Apps' array. The app under MouseX,MouseY
@@ -834,6 +863,25 @@ static void InitKeyboardHook(void)
 	KeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProcedure, NULL, 0);
 }
 
+static void ApplySwitcherBlur(bool on)
+{
+	BlurActive = false;
+	if (!SetWindowCompositionAttribute) {
+		return; // Windows too old, or Microsoft finally dropped the export. Draw opaque
+	}
+	struct accent_policy policy = {
+		on ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_DISABLED,
+		ACCENT_FLAG_FILL_WINDOW,
+		// The switcher's own background colour at alpha 120. This is the only
+		// tint: SetSwitcherAlpha leaves background pixels fully transparent so
+		// the two do not stack. At alpha 200 the blur stops being visible
+		(120u << 24) | (GetBValue(SWITCHER_BG) << 16) | (GetGValue(SWITCHER_BG) << 8) | GetRValue(SWITCHER_BG),
+		0,
+	};
+	struct composition_attribute attribute = {WCA_ACCENT_POLICY, &policy, sizeof policy};
+	BlurActive = on && SetWindowCompositionAttribute(Switcher, &attribute);
+}
+
 static void InitSwitcherWindow(handle instance)
 {
 	// Create switcher window
@@ -850,6 +898,13 @@ static void InitSwitcherWindow(handle instance)
 	// Rounded window corners
 	DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUND;
 	DwmSetWindowAttribute(Switcher, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
+	// Acrylic blur behind the switcher. GetProcAddress returns FARPROC, a
+	// different function pointer type; a union avoids both the pedantic
+	// object/function-pointer cast warning and -Wcast-function-type
+	union { FARPROC proc; SetWindowCompositionAttributeFn fn; } resolved;
+	resolved.proc = GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute");
+	SetWindowCompositionAttribute = resolved.fn;
+	ApplySwitcherBlur(true);
 }
 
 static void AddTrayIcon(void)
@@ -1489,8 +1544,23 @@ static void SetSwitcherAlpha(void)
 	}
 	iz count = (iz)(DrawingDims.drawRect.right - DrawingDims.drawRect.left)
 	         * (iz)(DrawingDims.drawRect.bottom - DrawingDims.drawRect.top);
+	if (!BlurActive) {
+		for (iz i = 0; i < count; i++, pixel += 4) {
+			pixel[3] = 255; // Opaque everywhere, exactly as before the blur existed
+		}
+		return;
+	}
+	// Pixels still showing the background colour are background: punch them
+	// through so the acrylic below shows. Everything drawn on top of them -
+	// icons, title text and its antialiased edges, the selection rectangle -
+	// differs from it and stays opaque
+	u8 b = GetBValue(SWITCHER_BG), g = GetGValue(SWITCHER_BG), r = GetRValue(SWITCHER_BG);
 	for (iz i = 0; i < count; i++, pixel += 4) {
-		pixel[3] = 255;
+		if (pixel[0] == b && pixel[1] == g && pixel[2] == r) {
+			pixel[0] = pixel[1] = pixel[2] = pixel[3] = 0;
+		} else {
+			pixel[3] = 255;
+		}
 	}
 }
 
@@ -1529,8 +1599,16 @@ static void RedrawSwitcher(void)
 	// Fill window background
 	FillRect(DrawingContext, &windowRect, DrawingBg);
 
-	// Select text font for DrawTextW (used to draw title text)
-	HFONT oldFont = (HFONT)SelectObject(DrawingContext, GetStockObject(DEFAULT_GUI_FONT));
+	// Select text font for DrawTextW (used to draw title text).
+	// Same face as DEFAULT_GUI_FONT, but greyscale-antialiased: ClearType's
+	// coloured subpixels would survive SetSwitcherAlpha as opaque dots
+	if (!DrawingFont) {
+		LOGFONTW logfont = {0};
+		GetObjectW(GetStockObject(DEFAULT_GUI_FONT), sizeof logfont, &logfont);
+		logfont.lfQuality = ANTIALIASED_QUALITY;
+		DrawingFont = CreateFontIndirectW(&logfont);
+	}
+	HFONT oldFont = (HFONT)SelectObject(DrawingContext, DrawingFont);
 
 	// This is how GDI handles memory?
 	//DeleteObject(oldPen);
