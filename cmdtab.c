@@ -699,6 +699,7 @@ struct app {
 struct gui {
 	f32 drawScale; // DPI scale of the monitor where the cursor is, which is where the switcher will be displayed
 	RECT drawRect; // Size of the scaled off-screen bitmap
+	u8 *drawBits;  // Pixels of the off-screen bitmap, BGRA, top-down. Owned by DrawingBitmap
 	u32 switcherHorzMargin;
 	u32 switcherVertMargin;
 	u32 iconSize;
@@ -708,6 +709,11 @@ struct gui {
 	u32 selHorzOff;
 	u32 selVertOff;
 };
+
+// The switcher background. SetSwitcherAlpha uses it as the key for which pixels
+// are background, and ApplySwitcherBlur tints the acrylic with it, so it has to
+// be one value in one place
+#define SWITCHER_BG RGB(32, 32, 32)
 
 static handle      Mutex;           // Singleton mutex to prevent running more than one cmdtab instance
 static struct ini  Config;          // cmdtab settings
@@ -1355,7 +1361,17 @@ static void ResizeSwitcher(void)
 		DeleteDC(DrawingContext);
 		DrawingContext = CreateCompatibleDC(context);
 		DeleteObject(DrawingBitmap);
-		DrawingBitmap = CreateCompatibleBitmap(context, DrawingDims.drawRect.right - DrawingDims.drawRect.left, DrawingDims.drawRect.bottom - DrawingDims.drawRect.top);
+		// A DIB section rather than a compatible bitmap, because the switcher
+		// needs an alpha channel it can write to (see SetSwitcherAlpha)
+		BITMAPINFO info = {0};
+		info.bmiHeader.biSize        = sizeof info.bmiHeader;
+		info.bmiHeader.biWidth       = DrawingDims.drawRect.right - DrawingDims.drawRect.left;
+		info.bmiHeader.biHeight      = -(DrawingDims.drawRect.bottom - DrawingDims.drawRect.top); // Negative means top-down, so row 0 is the top row
+		info.bmiHeader.biPlanes      = 1;
+		info.bmiHeader.biBitCount    = 32;
+		info.bmiHeader.biCompression = BI_RGB;
+		DrawingDims.drawBits = NULL;
+		DrawingBitmap = CreateDIBSection(context, &info, DIB_RGB_COLORS, (void **)&DrawingDims.drawBits, NULL, 0);
 		handle oldBitmap = (handle)SelectObject(DrawingContext, DrawingBitmap);
 		DeleteObject(oldBitmap);
 		ReleaseDC(Switcher, context);
@@ -1462,11 +1478,27 @@ static void DrawApp(struct app *app, RECT appRect, RECT windowRect)
 	}
 }
 
+// GDI does not maintain the alpha byte when drawing into a 32bpp DIB, so after
+// everything is drawn the alpha channel is written here in one sweep
+static void SetSwitcherAlpha(void)
+{
+	GdiFlush(); // GDI batches drawing calls; the pixels are not final until this returns
+	u8 *pixel = DrawingDims.drawBits;
+	if (!pixel) {
+		return;
+	}
+	iz count = (iz)(DrawingDims.drawRect.right - DrawingDims.drawRect.left)
+	         * (iz)(DrawingDims.drawRect.bottom - DrawingDims.drawRect.top);
+	for (iz i = 0; i < count; i++, pixel += 4) {
+		pixel[3] = 255;
+	}
+}
+
 static void RedrawSwitcher(void)
 {
 	// TODO Use 'Config.style'
 
-	COLORREF WIN_COLOR_BG = RGB(32, 32, 32); // dark mode?
+	COLORREF WIN_COLOR_BG = SWITCHER_BG; // dark mode?
 	COLORREF TXT_COLOR    = RGB(235, 235, 235);
 	COLORREF SEL_COLOR    = GetAccentColor() & 0x00FFFFFF; // RGB(76, 194, 255); // Sampled from Windows 11 Alt-Tab
 	COLORREF SEL_COLOR_BG = RGB(11, 11, 11); // Sampled from Windows 11 Alt-Tab
@@ -1545,6 +1577,8 @@ static void RedrawSwitcher(void)
 	if (MouseApp && MouseDown) {
 		DrawApp(MouseApp, mousedownRect, windowRect);
 	}
+
+	SetSwitcherAlpha();
 
 	// Invalidate window rectangle
 	RedrawWindow(Switcher, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
