@@ -1,0 +1,7 @@
+# Build output (see Makefile)
+cmdtab.exe
+cmdtab.o
+cmdtab-v*-win-x86_64.zip
+
+# CMake
+build/
