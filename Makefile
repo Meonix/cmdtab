@@ -15,7 +15,7 @@ ifdef RELEASE
 CFLAGS    += -Os -DNDEBUG=1 -mwindows
 LDFLAGS   += -s
 else
-CFLAGS    += $(WARNINGS) -ggdb3 -Og -D_DEBUG=1 -DDEBUG=1
+CFLAGS    += $(WARNINGS) -ggdb3 -Og -D_DEBUG=1 -DDEBUG=1 -mwindows
 endif
 
 cmdtab.exe: cmdtab.c cmdtab.o
