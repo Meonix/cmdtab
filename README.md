@@ -40,8 +40,16 @@ So why is **cmdtab** *the best* macOS-style window switcher alternative for Wind
 - Press Q to quit the selected app
 - Press W to close the selected window
 - Press F4 while the switcher is open to quit **cmdtab**
+- Tray icon in the notification area: left click for settings, right click for a menu
 
 That's a lot of useful stuff, and the code is small! Go read it, and learn some C while you're at it.
+
+### Settings
+**cmdtab** puts an icon in the notification area (behind the `^` chevron next to the clock, unless you drag it out). Left click it to open the settings window; right click it for a small menu with *Settings...* and *Quit cmdtab*.
+
+The settings window covers switching behavior—app grouping, raising all windows of an app, whether each hotkey shows the switcher or switches straight away, and wrap bump—plus a checkbox for starting **cmdtab** with Windows. Settings are stored under `HKEY_CURRENT_USER\Software\stianhoiland\cmdtab` and survive a restart. The in-switcher hotkeys `Alt-G` and `Alt-R` still work and are faster if you only want to flip one thing.
+
+Hotkeys, the blacklist and the switcher's appearance are not in the settings window yet; those still live in `InitConfig` in `cmdtab.c`.
 
 ## Installing **cmdtab**
 There's no installation. Just download the [latest version](https://github.com/stianhoiland/cmdtab/releases/latest) from the Releases section, unzip, and run. 
@@ -50,7 +58,7 @@ There's no installation. Just download the [latest version](https://github.com/s
 **cmdtab** cannot see elevated applications like Task Manager unless you "Run as administrator", but also works well otherwise.
 
 ### Autorun
-**cmdtab** will prompt you about autorun when you launch it, but the autorun that you can enable with **cmdtab** is not "Run as administrator". In the future, **cmdtab** will support autorun ***as admin***, but for now you must manually configure this by using the command below.
+Tick *Start cmdtab with Windows* in the settings window to turn autorun on or off at any time, but note that the autorun that you can enable with **cmdtab** is not "Run as administrator". In the future, **cmdtab** will support autorun ***as admin***, but for now you must manually configure this by using the command below.
 
 It makes sense to have **cmdtab** "Run as administrator", and it makes sense to have **cmdtab** autorun on login. Doing either is easy, but doing both, i.e. autorun as admin, is not so easy. The only way to autorun as admin is to use the Windows Task Scheduler. To create an appropriate scheduled task from the Command Prompt run this command:
 ```console
@@ -59,7 +67,7 @@ schtasks /create /sc onlogon /rl highest /tn "cmdtab elevated autorun" /tr "C:\U
 You can further customize the scheduled task created by that command by running `taskschd.msc` and looking for "cmdtab elevated autorun".
 
 ### Uninstalling
-**cmdtab** leaves no trace on your system, except for a registry key if you choose "Yes" when  **cmdtab** prompts you about autorun (and the scheduled task mentioned above if you manually created it). You can remove the autorun registry key by running **cmdtab** one last time before you delete `cmdtab.exe` and choose "No" to autorun.
+**cmdtab** leaves no trace on your system, except for the settings it stores under `HKEY_CURRENT_USER\Software\stianhoiland\cmdtab`, the autorun registry key if you enabled autorun (and the scheduled task mentioned above if you manually created it). Before you delete `cmdtab.exe`, run it one last time and untick *Start cmdtab with Windows* in the settings window to remove the autorun key; the settings key can be deleted with `reg delete "HKCU\Software\stianhoiland\cmdtab" /f`.
 
 ## Buildling from source
 **cmdtab** comes with a `CMakeLists.txt` for building with `CMake` and a `Makefile` for building with `make`. I use `make`.
