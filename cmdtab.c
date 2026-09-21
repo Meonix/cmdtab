@@ -803,18 +803,6 @@ static bool HasDebugLaunchArgument(u16 *args)
 	return !!wcsstr(args, L"--debug");
 }
 
-static bool HasAutorunLaunchArgument(u16 *args)
-{
-	return !!wcsstr(args, L"--autorun");
-}
-
-static void AskAutorun(void)
-{
-	#ifndef _DEBUG // Can't be bothered to be asked about this every single debug run
-	SetAutorun(Ask(Switcher, L"Start cmdtab automatically?\nRelaunch cmdtab.exe to change your mind."), L"cmdtab", L"--autorun");
-	#endif
-}
-
 static bool AlreadyRunning(void)
 {
 	Mutex = CreateMutexW(NULL, true, L"cmdtabMutex");
@@ -900,9 +888,6 @@ static int RunCmdTab(handle instance, u16 *args)
 
 	Print(L"ARGS: %s\n", args);
 
-	if (!HasAutorunLaunchArgument(args)) {
-		AskAutorun();
-	}
 	if (AlreadyRunning()) {
 		QuitSecondInstance();
 	}
