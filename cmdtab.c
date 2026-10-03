@@ -969,7 +969,7 @@ static int RunCmdTab(handle instance, u16 *args)
 	InitKeyboardHook();
 
 	// Run message loop
-	for (MSG msg; GetMessageW(&msg, Switcher, 0, 0) > 0;) DispatchMessageW(&msg); // Not handling -1 errors. Whatever
+	for (MSG msg; GetMessageW(&msg, Switcher, 0, 0) > 0;) DispatchMessageW(&msg); // Ends on WM_QUIT from WM_DESTROY
 
 	// Uninstall keyboard & event hooks
 	UnhookWindowsHookEx(KeyboardHook);
@@ -2313,7 +2313,7 @@ static void ShowTrayMenu(i32 x, i32 y)
 			ShowSettingsDialog();
 			break;
 		case TRAY_MENU_QUIT:
-			DestroyWindow(Switcher); // The program's normal exit: the next GetMessageW fails and the message loop ends
+			DestroyWindow(Switcher); // The program's normal exit: WM_DESTROY posts WM_QUIT and the message loop ends
 			break;
 	}
 }
@@ -2362,6 +2362,9 @@ static LRESULT CALLBACK SwitcherWindowProcedure(HWND hwnd, UINT message, WPARAM 
 			return OnTrayMessage(LOWORD(lparam), (i16)LOWORD(wparam), (i16)HIWORD(wparam));
 		case WM_DESTROY:
 			RemoveTrayIcon();
+			// Without WM_QUIT, quitting from the tray menu could leave GetMessageW waiting on
+			// the dead hwnd forever, keeping the keyboard hook and the singleton mutex alive
+			PostQuitMessage(0);
 			return 0;
 		case WM_CLOSE:
 			return OnSwitcherClose();
